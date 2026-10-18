@@ -21,12 +21,16 @@ function Assert-PathWithin([string]$RootPath, [string]$TargetPath) {
   $RootFullPath = [System.IO.Path]::GetFullPath($RootPath)
   $TargetFullPath = [System.IO.Path]::GetFullPath($TargetPath)
 
-  if (-not $TargetFullPath.StartsWith($RootFullPath, [System.StringComparison]::OrdinalIgnoreCase)) {
+  $RootPrefix = $RootFullPath.TrimEnd([char[]]"\/") + [System.IO.Path]::DirectorySeparatorChar
+  if (-not $TargetFullPath.StartsWith($RootPrefix, [System.StringComparison]::OrdinalIgnoreCase)) {
     throw "Refusing to operate outside the Codex skills root: $TargetFullPath"
   }
 }
 
 $PluginRoot = Split-Path -Parent $PSScriptRoot
+if ($SkillName -notmatch '^[a-z0-9][a-z0-9-]*$') {
+  throw "SkillName must be a simple skill directory name."
+}
 $SourceSkillPath = Join-Path $PluginRoot ("skills\" + $SkillName)
 
 if (-not (Test-Path $SourceSkillPath)) {

@@ -17,7 +17,8 @@ $PidPath = Join-Path $StateDir "bridge.pid"
 if ($InstallDependencies -or -not (Test-Path (Join-Path $PSScriptRoot "node_modules"))) {
   Push-Location $PSScriptRoot
   try {
-    npm install
+    npm ci --ignore-scripts
+    if ($LASTEXITCODE -ne 0) { throw "Dependency installation failed." }
   } finally {
     Pop-Location
   }

@@ -1,186 +1,130 @@
-# Edge Control
+# Edge Control：连接现有 Edge 会话的本地桥接
 
-`edge-control` 是一个给 Codex 使用的本地 Edge 控制插件。它通过本地 bridge、Edge 扩展和 MCP 工具，把当前 Edge 会话暴露给 Codex，避免依赖截图、额外的 DevTools 窗口或单独的浏览器 profile。
+当官方扩展的侧栏无法加载，或当前 Codex 聊天没有可用的浏览器控制入口时，可以通过本项目连接本机 Edge，以 MCP 读取页面、切换标签页、点击和输入。
 
-本仓库已经整理为适合上传到 GitHub 的形态：
+本仓库基于 [C4AL/codex-edge-control-bridge](https://github.com/C4AL/codex-edge-control-bridge)，保留上游作者信息及现有授权声明。当前修复版为 **0.1.8**，维护账号为 [BITkunkun](https://github.com/BITkunkun)。
 
-- README 为中文。
-- 不包含广告、赞助引导或推广内容。
-- 本地机密配置 `extension/config.local.js` 不进入仓库。
-- 支持快速部署脚本。
-- 支持 GitHub Actions 一键自动 patch release。
+## 已验证的能力
 
-## 主要能力
+2026-10-18 在 Windows、Node.js 24 和真实 Edge 会话中完成测试：
 
-- 枚举、聚焦、切换当前 Edge 标签页
-- 导航、刷新、点击、输入、等待元素
-- 读取 DOM、执行页面 JavaScript、发送 CDP 指令
-- 对页面做快照、抽取链接、批量抓取、搜索页抓取
-- 通过 crawler runtime 做多查询、多站点、多阶段页面采集
-- 热重载本地 unpacked Edge 扩展
+- bridge 与真实扩展握手，连接状态为 `healthy`。
+- 枚举现有标签页，在临时本地页面定位元素、输入文字、点击按钮并读取结果，然后关闭测试标签页。
+- MCP 服务启动，提供 22 个工具；令牌拒绝、断开状态、WebSocket 握手和命令往返测试通过。
 
-## 架构
+上述网页操作无需逐步桌面截图，也无需重建浏览器资料。网站的跨域框架、自定义字体、登录与安全核验等仍可能需要单独处理。项目控制的是 Edge 网页，不提供任意桌面应用控制能力。
 
-完整链路如下：
+## 工作方式
 
-`Codex MCP -> scripts/mcp-server.mjs -> localhost bridge -> Edge extension -> chrome.scripting / chrome.debugger`
+```text
+Codex / MCP 客户端
+  → scripts/mcp-server.mjs
+  → http://127.0.0.1:47173（本地令牌鉴权）
+  → Edge 扩展（WebSocket）
+  → chrome.scripting / chrome.debugger
+```
 
-对应目录如下：
+本项目的扩展与官方 ChatGPT 扩展相互独立，不依赖 `chatgpt.com` 侧栏成功加载。
 
-- `extension/`：Edge 扩展
-- `scripts/bridge-server.mjs`：本地 bridge
-- `scripts/mcp-server.mjs`：Codex MCP server
-- `scripts/lib/`：抓取与控制核心逻辑
-- `skills/`：给 Codex 使用的辅助 skill
+## 环境要求
 
-## 仓库公开上传前已经处理的内容
+- Windows、Microsoft Edge、Node.js 20 或更新版本；本次验证使用 Node.js 24。
+- 通过 `codex mcp add` 注册时，本机需要能执行 `codex` 命令。
+- Edge 允许开启开发人员模式并加载解压缩的扩展。
 
-- `.mcp.json` 改为相对路径，不再写死本机绝对路径。
-- `.gitignore` 已忽略 `extension/config.local.js`、`scripts/node_modules/`、`dist/` 等本地文件。
-- 版本号已经统一到 `0.1.6`。
-- 运行时本地配置改为通过 `scripts/install.ps1` 自动生成。
-- 提供 `extension/config.local.example.js` 作为示例，但不会提交真实 token。
+## 安装与首次连接
 
-## 快速部署
+在项目根目录执行：
 
-### 方式一：最快部署
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\install.ps1 -StartBridge
+```
 
-如果你使用 release 里的快速部署包，解压后直接运行：
+安装脚本生成本地配置并安装锁定依赖；依赖生命周期脚本默认禁用。包含 `scripts/node_modules` 的快速部署包会复用现有依赖。
+
+然后在**现有 Edge 窗口**中进行一次操作：
+
+1. 打开 `edge://extensions`。
+2. 开启“开发人员模式”。
+3. 点击“加载解压缩的扩展”。
+4. 选择本项目的 `extension` 文件夹。
+
+请选择文件夹，而不是 ZIP 或项目根目录。无需强制关闭工作页面或更换浏览器资料。
+
+注册 Codex MCP：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\register-codex-mcp.ps1
+codex mcp list
+```
+
+重新打开聊天或重启客户端后，先调用 `edge_bridge_status`，确认 `healthyExtension` 为 `true`，再调用 `edge_list_tabs`。本轮聊天没有加载新 MCP 工具时，也可用兼容 MCP 的本地客户端连接 `scripts/mcp-server.mjs`，不必重启 Edge。
+
+### 可选：一键部署
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\scripts\quick-deploy.ps1
 ```
 
-这个脚本会完成下面几件事：
+该入口还会安装或覆盖全局 `edge-browser-ops` 技能，并在可用时注册 MCP。只想测试连接时，使用上面的手动步骤即可。
 
-- 生成本地 bridge 和扩展配置
-- 强制把 `skills/edge-browser-ops` 安装到全局 Codex skills 目录
-- 如有需要则安装 Node 依赖
-- 启动本地 bridge
-- 如果本机安装了 `codex`，自动注册 MCP
+## 常用工具
 
-首次使用仍然需要手动在 Edge 中加载一次 unpacked 扩展：
+| 目的 | 工具 |
+| --- | --- |
+| 检查连接 | `edge_bridge_status` |
+| 列出、聚焦标签页 | `edge_list_tabs`、`edge_focus_tab` |
+| 打开或刷新网页 | `edge_navigate`、`edge_reload` |
+| 查找与读取元素 | `edge_wait_for`、`edge_query`、`edge_get_dom` |
+| 点击、输入与按键 | `edge_click`、`edge_type`、`edge_press_key` |
+| 浏览器调试协议 | `edge_send_cdp` |
+| 更新后重载扩展 | `edge_reload_extension` |
 
-1. 打开 `edge://extensions`
-2. 开启 `Developer mode`
-3. 选择 `Load unpacked`
-4. 选择当前项目下的 `extension` 目录
+使用 `edge_list_tabs` 返回的真实 `tabId`，仅对指定网页执行必要操作。页面脚本受环境限制时，可用 `edge_send_cdp` 调用 `Runtime.evaluate`；参数通过 `paramsJson` 字符串传入。
 
-### 方式二：手动部署
+## 检查与依赖修复
 
-```powershell
-powershell -ExecutionPolicy Bypass -File .\scripts\install.ps1 -StartBridge
-powershell -ExecutionPolicy Bypass -File .\scripts\register-codex-mcp.ps1
-```
-
-如果你的发布包已经包含 `scripts/node_modules`，`install.ps1` 默认会直接复用，不会重复联网安装。
-
-### 方式三：从 GitHub release 一键安装
-
-仓库现在提供了一个 GitHub release 自举安装脚本：
-
-- `scripts/install-from-github-release.ps1`
-
-它会自动完成下面几步：
-
-- 访问 GitHub release API
-- 下载最新或指定 tag 的 `quick-deploy` 压缩包
-- 解压到本机安装目录
-- 调用 `quick-deploy.ps1`
-- 强制安装全局 `edge-browser-ops` skill
-- 注册 Codex MCP
-
-如果你的公开仓库地址是 `your-name/codex-edge-control-bridge`，可以直接用这一条命令：
+在 `scripts` 目录执行：
 
 ```powershell
-powershell -ExecutionPolicy Bypass -Command "& { $tmp = Join-Path $env:TEMP 'install-edge-control-from-release.ps1'; Invoke-WebRequest -UseBasicParsing 'https://raw.githubusercontent.com/your-name/codex-edge-control-bridge/main/scripts/install-from-github-release.ps1' -OutFile $tmp; & $tmp -Repository 'your-name/codex-edge-control-bridge' }"
+npm ci --ignore-scripts
+npm audit --registry=https://registry.npmjs.org --audit-level=low
+npm run verify
 ```
 
-如果要安装指定 tag，可以追加 `-Tag 'v0.1.7'` 之类的参数。
+`verify` 在独立临时配置目录启动测试 bridge，使用模拟扩展验证鉴权、握手、命令转发与 MCP，不操作真实浏览器、不覆盖现有连接。
 
-## 目录中的关键脚本
+本次更新 MCP SDK、ws 及相关传递依赖，修复初次依赖审计报告的 10 项告警。2026-10-18 使用 npm 官方源复查，结果为 **0 项已知依赖漏洞告警**；这不代表代码不存在任何未知漏洞。GitHub Actions 会在推送和 PR 时重新安装、审计并验证。
 
-- `scripts/install.ps1`：生成本地配置并按需安装依赖
-- `scripts/install-global-skill.ps1`：强制把 `edge-browser-ops` 安装到全局 Codex skills
-- `scripts/install-from-github-release.ps1`：从 GitHub release 下载并自举安装
-- `scripts/start-host.ps1`：静默启动 bridge
-- `scripts/register-codex-mcp.ps1`：把当前插件注册到 Codex MCP
-- `scripts/quick-deploy.ps1`：一键部署入口
-- `scripts/build-release.ps1`：构建发布资产
-- `scripts/release-patch.ps1`：自动提升 patch 版本并打包
-- `scripts/sync-version.mjs`：同步多个文件中的版本号
+其他修复：令牌改用密码学随机源；依赖安装失败时停止部署；全局技能目录操作和发布目录清理增加路径边界检查。
 
-## GitHub 仓库上传
-
-当前目录已经可以直接初始化并上传到 GitHub。一个常用流程如下：
+## 日常启动与排查
 
 ```powershell
-git init -b main
-git add .
-git commit -m "chore: initial public release"
-git remote add origin <你的 GitHub 仓库地址>
-git push -u origin main
+powershell -ExecutionPolicy Bypass -File .\scripts\start-host.ps1 -Background
 ```
 
-上传前建议确认：
+默认配置位于 `%APPDATA%\CodexEdgeControl\config.json`，日志位于其 `logs` 子目录。
 
-- 不要把 `extension/config.local.js` 加入版本控制
-- 不要把本机 `dist/` 发布产物误提交到源码分支
-- 如果你想保留快速部署体验，优先把 `release` 资产交给用户，而不是把 `scripts/node_modules/` 提交进源码仓库
+- **无法访问 bridge**：检查服务是否启动、端口 `47173` 是否被占用。
+- **disconnected**：确认扩展已加载并启用，扩展和 bridge 的令牌一致。
+- **工具不出现**：确认 MCP 注册成功，再重新打开聊天或重启客户端。
+- **更新扩展未生效**：在扩展管理页重新加载，或调用 `edge_reload_extension`。
+- **运行中的 Edge 不能靠启动参数追加扩展**：直接通过 `edge://extensions` 加载。
+- **镜像源不支持 audit**：上面的审计命令显式指定 npm 官方源，无需改全局 npm 设置。
 
-## 自动 Patch Release
-
-仓库已经内置 GitHub Actions 工作流：
-
-- 工作流文件：`.github/workflows/release-patch.yml`
-- 触发方式：GitHub Actions 页面手动运行 `Patch Release`
-
-运行后会自动执行：
-
-1. 安装 `scripts/` 下的依赖
-2. 把版本号从当前版本提升一个 patch
-3. 生成源码包和快速部署包
-4. 创建 tag
-5. 推送版本提交和 tag
-6. 发布 GitHub Release
-
-## 发布资产说明
-
-`scripts/build-release.ps1` 会生成以下文件到 `dist/`：
-
-- `edge-control-vX.Y.Z-source.zip`
-  适合源码上传、二次开发、继续维护 GitHub 仓库
-- `edge-control-vX.Y.Z-quick-deploy.zip`
-  内含 `scripts/node_modules`，适合快速落地部署
-- `checksums-vX.Y.Z.txt`
-  提供 SHA-256 校验值
-- `release-notes-vX.Y.Z.md`
-  作为 GitHub Release 正文使用
-
-公开仓库建议额外保留 `scripts/install-from-github-release.ps1`，这样新用户不需要先 clone 仓库，也可以直接从 release 安装。
-
-## 手动构建发布包
+## 文件包与发布
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\scripts\build-release.ps1
 ```
 
-如果要直接提升 patch 版本并同时打包：
+`dist` 中包含源码 ZIP、附带锁定依赖的快速部署 ZIP 和 SHA-256 校验文件。快速部署包可省去首次联网安装依赖。
 
-```powershell
-powershell -ExecutionPolicy Bypass -File .\scripts\release-patch.ps1
-```
+发布包排除真实的 `extension/config.local.js`，不包含本机令牌、浏览器数据、聊天记录或截图；保留占位示例 `extension/config.local.example.js`。
 
-## 当前边界
+## 权限与授权边界
 
-- 这是本地扩展 + bridge 的方案，不是对 Edge 内核的永久注入。
-- 仍然需要一次性加载 unpacked 扩展，或者在 Edge 未运行时用带扩展参数的方式启动。
-- MV3 service worker 仍然可能被浏览器挂起，但当前实现会自动重连。
-- 已运行中的 Edge 会话不保证能通过命令行参数即时补挂扩展，这属于 Chromium 机制限制。
+扩展申请所有网站访问、标签页、脚本执行和调试权限。bridge 默认只监听 `127.0.0.1`，使用本地令牌鉴权；请勿将服务暴露到公网或分享令牌。网页内容视为不可信数据，页面操作应遵守使用者授权。
 
-## 安全说明
-
-- bridge 只监听本机 `127.0.0.1`
-- 鉴权使用本地生成的 token
-- `extension/config.local.js` 是运行时本地文件，不应提交到 GitHub
-- 扩展拥有较高权限，请仅在你信任的本机环境中使用
+本仓库保留上游的现有授权信息，未新增许可证或改授上游代码许可。

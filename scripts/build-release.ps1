@@ -21,13 +21,23 @@ if (-not $Version) {
 if (-not $SkipDependencyInstall -and -not (Test-Path $NodeModulesDir)) {
   Push-Location $ScriptsDir
   try {
-    npm ci
+    npm ci --ignore-scripts
+    if ($LASTEXITCODE -ne 0) { throw "Dependency installation failed." }
   } finally {
     Pop-Location
   }
 }
 
+function Assert-ReleasePath([string]$Path) {
+  $DistPrefix = [System.IO.Path]::GetFullPath($DistDir).TrimEnd([char[]]"\/") + [System.IO.Path]::DirectorySeparatorChar
+  $TargetFullPath = [System.IO.Path]::GetFullPath($Path)
+  if (-not $TargetFullPath.StartsWith($DistPrefix, [System.StringComparison]::OrdinalIgnoreCase)) {
+    throw "Refusing to modify a path outside the release directory: $TargetFullPath"
+  }
+}
+
 function Reset-Directory([string]$Path) {
+  Assert-ReleasePath $Path
   if (Test-Path $Path) {
     Remove-Item -LiteralPath $Path -Recurse -Force
   }
@@ -35,6 +45,7 @@ function Reset-Directory([string]$Path) {
 }
 
 function Copy-ReleaseLayout([string]$TargetPath, [bool]$IncludeNodeModules, [bool]$IncludeGitHubWorkflow) {
+  Assert-ReleasePath $TargetPath
   $Items = @(
     ".codex-plugin",
     "assets",

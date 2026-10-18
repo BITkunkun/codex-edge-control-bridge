@@ -20,7 +20,10 @@ New-Item -ItemType Directory -Force $StateDir | Out-Null
 if (Test-Path $ConfigPath) {
   $Config = Get-Content -Raw $ConfigPath | ConvertFrom-Json
 } else {
-  $Token = [Convert]::ToBase64String((1..48 | ForEach-Object { Get-Random -Minimum 0 -Maximum 256 }))
+  $TokenBytes = New-Object byte[] 48
+  $RandomSource = [Security.Cryptography.RandomNumberGenerator]::Create()
+  try { $RandomSource.GetBytes($TokenBytes) } finally { $RandomSource.Dispose() }
+  $Token = [Convert]::ToBase64String($TokenBytes)
   $Config = [pscustomobject]@{
     host = $HostName
     port = $Port
@@ -50,7 +53,8 @@ if ($SkipDependencies) {
 if ($ShouldInstallDependencies) {
   Push-Location $PSScriptRoot
   try {
-    npm ci
+    npm ci --ignore-scripts
+    if ($LASTEXITCODE -ne 0) { throw "Dependency installation failed." }
   } finally {
     Pop-Location
   }
